@@ -97,7 +97,8 @@ aigcap . --ci                     # CI mode: exit 1 if unreviewed files exist
 
 
 ## Report Example 
-<img width="3272" height="1980" alt="image" src="https://github.com/user-attachments/assets/98501e55-8d9f-4702-a91c-9ea3ff19c48a" />
+<img width="3132" height="2104" alt="image" src="https://github.com/user-attachments/assets/69fef167-4093-4a2e-a795-41d5c52b6b79" />
+
 
 ## CI Integration (GitHub Actions)
 
