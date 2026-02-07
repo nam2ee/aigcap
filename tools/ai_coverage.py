@@ -73,6 +73,35 @@ DEFAULT_EXCLUDE = {
 
 BANNER = "THIS FILE INCLUDES AI GENERATED CODE"
 
+# Files to skip even if their extension is in LANG_MAP
+# Config files, lock files, manifests, and auto-generated reports
+SKIP_FILENAMES = {
+    # Lock & manifest files
+    "Cargo.lock", "Cargo.toml", "package.json", "package-lock.json",
+    "tsconfig.json", "jsconfig.json", "composer.json", "composer.lock",
+    "Gemfile", "Gemfile.lock", "pyproject.toml", "setup.py", "setup.cfg",
+    "poetry.lock", "Pipfile", "Pipfile.lock", "pom.xml", "build.gradle",
+    "go.mod", "go.sum", "yarn.lock", "pnpm-lock.yaml",
+    # CI / Config YAML
+    "docker-compose.yml", "docker-compose.yaml",
+    ".eslintrc.yml", ".eslintrc.yaml", ".prettierrc.yml",
+    ".stylelintrc.yml", ".gitlab-ci.yml", "renovate.json",
+    "dependabot.yml", ".editorconfig",
+    # Android / iOS manifests
+    "AndroidManifest.xml", "Info.plist",
+    # AIGCAP's own output
+    "ai_coverage_report.html",
+    # Misc
+    "__init__.py", "conftest.py",
+    ".env", ".env.local", ".env.production",
+}
+
+SKIP_PATTERNS = {
+    # Glob-style patterns (matched against filename)
+    ".eslintrc", ".prettierrc", ".stylelintrc",
+    ".babelrc", "tsconfig.", "jsconfig.",
+}
+
 
 # ─── Data Models ────────────────────────────────────────────────────────────
 
@@ -341,8 +370,9 @@ def estimate_ai_lines(total_lines: int, type_coverage: str, methods: list, struc
 
 # ─── Scanner ────────────────────────────────────────────────────────────────
 
-def scan_directory(directory: str, exclude_dirs: set[str]) -> ProjectReport:
+def scan_directory(directory: str, exclude_dirs: set[str], exclude_files: set[str] = None) -> ProjectReport:
     """Scan directory tree and parse all AIGCAP headers."""
+    _exclude_files = exclude_files or set()
     report = ProjectReport(
         scan_directory=os.path.abspath(directory),
         scan_time=datetime.now().isoformat(),
@@ -357,6 +387,12 @@ def scan_directory(directory: str, exclude_dirs: set[str]) -> ProjectReport:
             ext = Path(filename).suffix.lower()
 
             if ext not in LANG_MAP:
+                continue
+
+            # Skip config files, lock files, and auto-generated reports
+            if filename in SKIP_FILENAMES or filename in _exclude_files:
+                continue
+            if any(filename.startswith(p) for p in SKIP_PATTERNS):
                 continue
 
             report.total_files_scanned += 1
@@ -1086,7 +1122,12 @@ Examples:
     if not args.quiet:
         print(f"🔍 Scanning {os.path.abspath(args.directory)} ...")
 
-    report = scan_directory(args.directory, exclude)
+    # Collect output filenames to exclude from scan
+    skip_outputs = {os.path.basename(args.output)}
+    if args.json_path:
+        skip_outputs.add(os.path.basename(args.json_path))
+
+    report = scan_directory(args.directory, exclude, exclude_files=skip_outputs)
 
     # Generate HTML
     html = generate_html(report)
