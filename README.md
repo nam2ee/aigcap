@@ -166,6 +166,8 @@ Added to the top of every file using the language's comment syntax:
 
 Rust, C, C++, Java, JavaScript, TypeScript, Go, Swift, Kotlin, Scala, C#, Python, Ruby, Shell, CSS, SCSS, SQL, Lua, Haskell, HTML, XML, SVG, Vue, YAML, TOML, R, and more.
 
+If you want more, you can customize at `check_aigcap.py` , `ai_coverage.py` and `AIGCAP_PROTOCOL.md`
+
 ## Uninstall
 
 ```bash
