@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
 AIGCAP PreToolUse Hook (for Write)
-Runs BEFORE Claude writes a file. Checks if the content includes AIGCAP header.
-If missing on a code file, blocks the write (exit 2) and tells Claude to fix it.
+Runs BEFORE Claude writes a file. Checks if the content includes AIGCAP header
+and REVIEWED-BY-HUMAN: NO. Blocks if missing or if Claude tries to write YES.
 
 Also works as PostToolUse Hook (for Edit)
-Runs AFTER Claude edits a file. Checks the file on disk for AIGCAP header.
-If missing, outputs feedback so Claude re-edits to add it.
+Runs AFTER Claude edits a file. Checks the file on disk.
+If REVIEWED-BY-HUMAN: YES remains after Claude's edit, tells Claude to reset to NO.
 
 Usage in settings.json:
-  PreToolUse matcher "Write"  → blocks write if no header in content
-  PostToolUse matcher "Edit"  → warns after edit if file lacks header
+  PreToolUse matcher "Write"  → blocks write if no header or REVIEWED-BY-HUMAN issue
+  PostToolUse matcher "Edit"  → warns after edit if header missing or YES not reset
 """
 import json
 import sys
 import os
+import re
 
 CODE_EXTENSIONS = {
     ".rs", ".c", ".h", ".cpp", ".hpp", ".java",
@@ -35,10 +36,12 @@ SKIP_PATTERNS = [
     "CLAUDE.md", "AIGCAP_PROTOCOL.md", "README.md", "CHANGELOG.md", "LICENSE",
     ".env", ".gitignore", ".dockerignore",
     "Makefile", "Dockerfile", "docker-compose",
-    "__init__.py",  # usually empty or trivial
+    "__init__.py",
 ]
 
 BANNER = "THIS FILE INCLUDES AI GENERATED CODE"
+REVIEWED_NO = re.compile(r"REVIEWED-BY-HUMAN\s*:\s*NO", re.IGNORECASE)
+REVIEWED_YES = re.compile(r"REVIEWED-BY-HUMAN\s*:\s*YES", re.IGNORECASE)
 PROTOCOL_PATH = "~/.claude/protocols/AIGCAP_PROTOCOL.md"
 
 
@@ -71,16 +74,38 @@ def main():
     # --- PreToolUse on Write: check content before it's written ---
     if tool_name == "Write":
         content = tool_input.get("content", "")
-        if BANNER in content:
-            sys.exit(0)  # header present, allow
 
-        print(
-            f"⚠️ AIGCAP BLOCKED: '{file_path}' is missing the AIGCAP header.\n"
-            f"Read {PROTOCOL_PATH} and include the header at the top of the file.\n"
-            f"Then retry the Write with the header included.",
-            file=sys.stderr,
-        )
-        sys.exit(2)  # block the write
+        # Check 1: AIGCAP banner must be present
+        if BANNER not in content:
+            print(
+                f"⚠️ AIGCAP BLOCKED: '{file_path}' is missing the AIGCAP header.\n"
+                f"Read {PROTOCOL_PATH} and include the header at the top of the file.\n"
+                f"Then retry the Write with the header included.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        # Check 2: Claude must NOT write REVIEWED-BY-HUMAN: YES
+        if REVIEWED_YES.search(content):
+            print(
+                f"⚠️ AIGCAP BLOCKED: '{file_path}' has REVIEWED-BY-HUMAN: YES.\n"
+                f"You (AI) must ALWAYS write REVIEWED-BY-HUMAN: NO. Only humans may set YES.\n"
+                f"Change it to REVIEWED-BY-HUMAN: NO and retry.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        # Check 3: REVIEWED-BY-HUMAN: NO must be present
+        if not REVIEWED_NO.search(content):
+            print(
+                f"⚠️ AIGCAP BLOCKED: '{file_path}' is missing REVIEWED-BY-HUMAN: NO.\n"
+                f"Read {PROTOCOL_PATH} — you must include REVIEWED-BY-HUMAN: NO in the header.\n"
+                f"Then retry the Write.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        sys.exit(0)  # all checks passed
 
     # --- PostToolUse on Edit: check file on disk after edit ---
     if tool_name in ("Edit", "MultiEdit"):
@@ -89,14 +114,31 @@ def main():
                 sys.exit(0)
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 head = "".join(f.readline() for _ in range(50))
-            if BANNER in head:
+
+            # Check 1: AIGCAP header present?
+            if BANNER not in head:
+                print(
+                    f"⚠️ AIGCAP WARNING: '{file_path}' has no AIGCAP header after your edit.\n"
+                    f"Read {PROTOCOL_PATH} and add the AIGCAP header to the top of this file now."
+                )
                 sys.exit(0)
 
-            # Output to stdout — Claude sees this as feedback
-            print(
-                f"⚠️ AIGCAP WARNING: '{file_path}' has no AIGCAP header after your edit.\n"
-                f"Read {PROTOCOL_PATH} and add the AIGCAP header to the top of this file now."
-            )
+            # Check 2: REVIEWED-BY-HUMAN: YES left unchanged?
+            # If Claude edited the file, it must be reset to NO.
+            if REVIEWED_YES.search(head) and not REVIEWED_NO.search(head):
+                print(
+                    f"⚠️ AIGCAP WARNING: '{file_path}' still has REVIEWED-BY-HUMAN: YES.\n"
+                    f"You modified this file, so you MUST reset it to REVIEWED-BY-HUMAN: NO.\n"
+                    f"Edit the header now to change YES to NO."
+                )
+                sys.exit(0)
+
+            # Check 3: No REVIEWED-BY-HUMAN field at all?
+            if not REVIEWED_NO.search(head) and not REVIEWED_YES.search(head):
+                print(
+                    f"⚠️ AIGCAP WARNING: '{file_path}' is missing REVIEWED-BY-HUMAN field.\n"
+                    f"Add REVIEWED-BY-HUMAN: NO to the AIGCAP header in this file."
+                )
         except Exception:
             pass
 

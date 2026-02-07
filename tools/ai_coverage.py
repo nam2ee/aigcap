@@ -142,6 +142,7 @@ class FileReport:
     libraries: list[LibraryEntry] = field(default_factory=list)
     total_lines: int = 0
     ai_lines_estimate: int = 0
+    reviewed_by_human: bool = False
 
 @dataclass
 class ProjectReport:
@@ -150,6 +151,7 @@ class ProjectReport:
     total_files_scanned: int = 0
     total_files_with_aigcap: int = 0
     total_files_without_aigcap: int = 0
+    total_unreviewed: int = 0
     files: list[FileReport] = field(default_factory=list)
     files_without_header: list[str] = field(default_factory=list)
     language_breakdown: dict = field(default_factory=dict)
@@ -181,6 +183,10 @@ RE_LIBRARY = re.compile(
 )
 RE_TYPE = re.compile(
     r"TYPE:\s*(WHOLE\s+CODE\s+IN\s+THIS\s+FILE|ABOVE\s+50%?\s+IN\s+THIS\s+FILE|DOWN\s+50%?\s+IN\s+THIS\s+FILE)",
+    re.IGNORECASE,
+)
+RE_REVIEWED = re.compile(
+    r"REVIEWED-BY-HUMAN\s*:\s*(YES|NO)",
     re.IGNORECASE,
 )
 
@@ -244,6 +250,7 @@ def parse_header(header_text: str) -> dict:
     """Parse the extracted header text into structured data."""
     result = {
         "type": None,
+        "reviewed": False,
         "methods": [],
         "structs": [],
         "traits": [],
@@ -260,6 +267,11 @@ def parse_header(header_text: str) -> dict:
             result["type"] = "ABOVE_50"
         elif "DOWN" in raw:
             result["type"] = "DOWN_50"
+
+    # Parse REVIEWED-BY-HUMAN
+    reviewed_match = RE_REVIEWED.search(header_text)
+    if reviewed_match:
+        result["reviewed"] = reviewed_match.group(1).upper() == "YES"
 
     current_section = None
     for line in header_text.split("\n"):
@@ -437,8 +449,12 @@ def scan_directory(directory: str, exclude_dirs: set[str], exclude_files: set[st
                 libraries=parsed["libraries"],
                 total_lines=total_lines,
                 ai_lines_estimate=ai_lines,
+                reviewed_by_human=parsed["reviewed"],
             )
             report.files.append(file_report)
+
+            if not parsed["reviewed"]:
+                report.total_unreviewed += 1
 
             # Language breakdown
             lang_name = lang_info["name"]
@@ -497,6 +513,7 @@ def generate_html(report: ProjectReport) -> str:
     for f in sorted(report.files, key=lambda x: x.ai_lines_estimate, reverse=True):
         pct = (f.ai_lines_estimate / f.total_lines * 100) if f.total_lines > 0 else 0
         type_badge = _type_badge(f.type_coverage)
+        review_badge = '<span class="badge badge-down">✅ YES</span>' if f.reviewed_by_human else '<span class="badge badge-whole">❌ NO</span>'
         methods_str = ", ".join(
             f'<span class="tag tag-method" title="{_coverage_label(m)}">{m.name}</span>'
             for m in f.methods
@@ -519,6 +536,7 @@ def generate_html(report: ProjectReport) -> str:
           <td class="file-path" title="{f.path}">{f.path}</td>
           <td>{f.language}</td>
           <td>{type_badge}</td>
+          <td>{review_badge}</td>
           <td class="num">{f.total_lines}</td>
           <td class="num">{f.ai_lines_estimate}</td>
           <td>
@@ -910,6 +928,11 @@ def generate_html(report: ProjectReport) -> str:
       <div class="label">&lt;50% AI Files</div>
       <div class="value">{down50_files}</div>
     </div>
+    <div class="stat-card{"  color-red" if report.total_unreviewed > 0 else "  color-green"}">
+      <div class="label">Unreviewed AI Files</div>
+      <div class="value">{report.total_unreviewed}</div>
+      <div class="sub">{"⚠️ Needs human review" if report.total_unreviewed > 0 else "✅ All reviewed"}</div>
+    </div>
   </div>
 
   <!-- Charts -->
@@ -933,6 +956,7 @@ def generate_html(report: ProjectReport) -> str:
           <th>File</th>
           <th>Lang</th>
           <th>Type</th>
+          <th>Review</th>
           <th>Total Lines</th>
           <th>AI Lines</th>
           <th style="min-width:130px">Coverage</th>
@@ -943,7 +967,7 @@ def generate_html(report: ProjectReport) -> str:
         </tr>
       </thead>
       <tbody>
-        {file_rows if file_rows else '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text-muted);">No AIGCAP headers found</td></tr>'}
+        {file_rows if file_rows else '<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--text-muted);">No AIGCAP headers found</td></tr>'}
       </tbody>
     </table>
   </div>
@@ -1108,6 +1132,7 @@ Examples:
     parser.add_argument("--json", dest="json_path", help="Also export raw data as JSON")
     parser.add_argument("--exclude", default="", help="Comma-separated additional dirs to exclude")
     parser.add_argument("--no-open", action="store_true", help="Don't auto-open the report")
+    parser.add_argument("--ci", action="store_true", help="CI mode: exit 1 if any unreviewed AI files exist")
     parser.add_argument("-q", "--quiet", action="store_true", help="Suppress console output")
     args = parser.parse_args()
 
@@ -1153,12 +1178,27 @@ Examples:
             print(f"📄 JSON exported to:  {args.json_path}")
 
     # Auto-open
-    if not args.no_open:
+    if not args.no_open and not args.ci:
         import webbrowser
         try:
             webbrowser.open(f"file://{os.path.abspath(args.output)}")
         except Exception:
             pass
+
+    # CI mode: fail if unreviewed AI files exist
+    if args.ci:
+        unreviewed = [f for f in report.files if not f.reviewed_by_human]
+        if unreviewed:
+            print(f"\n❌ CI FAILED: {len(unreviewed)} file(s) with REVIEWED-BY-HUMAN: NO\n")
+            for f in unreviewed:
+                print(f"   ❌ {f.path}")
+            print(f"\nAll AI-generated code must be reviewed before merge.")
+            print(f"Change REVIEWED-BY-HUMAN: NO → YES after human review.\n")
+            sys.exit(1)
+        else:
+            if not args.quiet:
+                print(f"\n✅ CI PASSED: All {len(report.files)} AI file(s) reviewed.\n")
+            sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # AIGCAP — AI-Generated Code Annotation Protocol
 
-A system that automatically requires Claude Code to annotate every code file it writes with a structured AI-contribution header, and generates an HTML coverage dashboard showing how much of your project is AI-generated.
+A system that automatically requires Claude Code to annotate every code file it writes with a structured AI-contribution header, enforces human review before merge, and generates an HTML coverage dashboard.
 
 ## Quick Start
 
@@ -46,6 +46,7 @@ Claude attempts to write a code file
   │  1st defense: CLAUDE.md (every turn)      │
   │  → "Read AIGCAP protocol before writing"  │
   │  → Claude voluntarily includes header     │
+  │  → Always writes REVIEWED-BY-HUMAN: NO    │
   └────┬──────────────────────────────────────┘
        │ if it forgets?
   ┌────┴──────────────────────────────────────┐
@@ -53,15 +54,34 @@ Claude attempts to write a code file
   │                                           │
   │  Write (PreToolUse):                      │
   │    No header → BLOCKED (exit 2)           │
-  │    → "Read the protocol and retry"        │
-  │    → Claude reads protocol & retries      │
+  │    REVIEWED-BY-HUMAN: YES → BLOCKED       │
+  │    Missing REVIEWED-BY-HUMAN → BLOCKED    │
   │                                           │
   │  Edit (PostToolUse):                      │
-  │    No header → WARNING (stdout)           │
-  │    → "Add the header now"                 │
-  │    → Claude adds the header               │
+  │    REVIEWED-BY-HUMAN: YES still set →     │
+  │    WARNING: "Reset to NO, you edited it"  │
+  └────┬──────────────────────────────────────┘
+       │ on PR
+  ┌────┴──────────────────────────────────────┐
+  │  3rd defense: CI (GitHub Actions)         │
+  │                                           │
+  │  aigcap --ci scans changed files          │
+  │    REVIEWED-BY-HUMAN: NO found → ❌ FAIL  │
+  │    All YES → ✅ PASS → merge allowed      │
   └───────────────────────────────────────────┘
 ```
+
+## REVIEWED-BY-HUMAN Flow
+
+Every AI-generated file gets `REVIEWED-BY-HUMAN: NO` by default. A human must review and change it to `YES` before the PR can merge.
+
+| Action | REVIEWED-BY-HUMAN |
+|---|---|
+| Claude writes a new file | `NO` (always) |
+| Claude edits a reviewed file (`YES`) | Hook warns → Claude resets to `NO` |
+| Claude tries to write `YES` itself | Hook **blocks** the write |
+| Human reviews and approves | Human changes `NO` → `YES` |
+| CI runs `aigcap --ci` | Fails if any `NO` remains |
 
 ## Coverage Report
 
@@ -72,14 +92,50 @@ aigcap .                          # Scan current directory → HTML dashboard
 aigcap ./src -o report.html       # Custom output path
 aigcap . --json data.json         # Also export raw JSON data
 aigcap . --exclude vendor,dist    # Exclude specific directories
+aigcap . --ci                     # CI mode: exit 1 if unreviewed files exist
 ```
 
-The installer places `aigcap` in `~/.local/bin/`. If that directory isn't in your PATH, the installer automatically adds it to your shell config.
 
-
-## Dashboard Example 
+## Report Example 
 <img width="3272" height="1980" alt="image" src="https://github.com/user-attachments/assets/98501e55-8d9f-4702-a91c-9ea3ff19c48a" />
 
+## CI Integration (GitHub Actions)
+
+Add this workflow to your project repository at `.github/workflows/aigcap.yml`:
+
+```yaml
+name: AIGCAP Review Check
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  aigcap-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install AIGCAP
+        run: |
+          git clone https://github.com/nam2ee/aigcap.git /tmp/aigcap
+          cp /tmp/aigcap/tools/ai_coverage.py /usr/local/bin/aigcap
+          chmod +x /usr/local/bin/aigcap
+
+      - name: Check AI code review status
+        run: aigcap . --ci --no-open -q
+```
+
+This will:
+1. Block any PR that contains `REVIEWED-BY-HUMAN: NO`
+2. Pass when all AI files have been reviewed (`YES`)
+3. Ignore human-only files (no AIGCAP header)
+
+To enforce it, go to **Settings → Branches → Branch protection rules** and enable "Require status checks to pass before merging" with `aigcap-check` as a required check.
 
 ## AIGCAP Header Example
 
@@ -91,6 +147,7 @@ Added to the top of every file using the language's comment syntax:
  * THIS FILE INCLUDES AI GENERATED CODE
  * ========================================
  * TYPE: ABOVE 50% IN THIS FILE
+ * REVIEWED-BY-HUMAN: NO
  *
  * METHOD(FUNCTIONS):
  *   - WHOLE CODE IN THE METHOD `parse_config`
@@ -152,9 +209,6 @@ The installer never overwrites your existing configuration:
 | `settings.json` exists (has hooks) | Skips |
 
 All existing files are backed up to `~/.claude/backups/aigcap-<timestamp>/` before any changes.
-
-
-
 
 ## License
 

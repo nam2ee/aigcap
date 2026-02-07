@@ -9,6 +9,7 @@ Every code file you create or substantially modify MUST have this header at the 
 THIS FILE INCLUDES AI GENERATED CODE
 ========================================
 TYPE: <coverage_type>
+REVIEWED-BY-HUMAN: NO
 
 METHOD(FUNCTIONS):
   - <entry>
@@ -59,14 +60,27 @@ IMPORTED LIBRARY:
 - Format: `<library_name>: <reason_AI_chose_it>`
 - Only list libraries YOU (AI) chose. Not ones the human requested.
 
+## REVIEWED-BY-HUMAN
+
+| Value | Meaning |
+|---|---|
+| `NO` | AI-generated code, not yet reviewed by a human |
+| `YES` | A human has reviewed and approved the AI code |
+
+- You (AI) MUST always write `REVIEWED-BY-HUMAN: NO`. Never write `YES`.
+- Only a human may change `NO` to `YES` after code review.
+- If you modify a file that already has `REVIEWED-BY-HUMAN: YES`, you MUST reset it to `NO`.
+
 ## Rules
 
 1. Header goes at the very top of the file, before any code.
 2. `THIS FILE INCLUDES AI GENERATED CODE` banner is always required.
 3. `TYPE` is always required. At least one detail section must follow.
-4. Omit empty sections entirely (e.g., no structs → no STRUCTS section).
-5. If file already has an AIGCAP header, UPDATE it — never duplicate.
-6. Method/struct/trait names should use backticks in block comments.
+4. `REVIEWED-BY-HUMAN: NO` is always required. You must NEVER write `YES`.
+5. If modifying a file with `REVIEWED-BY-HUMAN: YES`, reset it to `NO`.
+6. Omit empty sections entirely (e.g., no structs → no STRUCTS section).
+7. If file already has an AIGCAP header, UPDATE it — never duplicate.
+8. Method/struct/trait names should use backticks in block comments.
 
 ## Examples
 
@@ -77,6 +91,7 @@ IMPORTED LIBRARY:
  * THIS FILE INCLUDES AI GENERATED CODE
  * ========================================
  * TYPE: ABOVE 50% IN THIS FILE
+ * REVIEWED-BY-HUMAN: NO
  *
  * METHOD(FUNCTIONS):
  *   - WHOLE CODE IN THE METHOD `parse_config`
@@ -101,6 +116,7 @@ IMPORTED LIBRARY:
 # THIS FILE INCLUDES AI GENERATED CODE
 # ========================================
 # TYPE: WHOLE CODE IN THIS FILE
+# REVIEWED-BY-HUMAN: NO
 #
 # METHOD(FUNCTIONS):
 #   - WHOLE CODE IN THE METHOD `fetch_data`
@@ -118,6 +134,7 @@ IMPORTED LIBRARY:
  * THIS FILE INCLUDES AI GENERATED CODE
  * ========================================
  * TYPE: DOWN 50% IN THIS FILE
+ * REVIEWED-BY-HUMAN: NO
  *
  * METHOD(FUNCTIONS):
  *   - WHOLE CODE IN THE METHOD `handleSubmit`
