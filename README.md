@@ -148,6 +148,11 @@ The installer never overwrites your existing configuration:
 
 All existing files are backed up to `~/.claude/backups/aigcap-<timestamp>/` before any changes.
 
+
+## Dashboard Example 
+<img width="3272" height="1980" alt="image" src="https://github.com/user-attachments/assets/98501e55-8d9f-4702-a91c-9ea3ff19c48a" />
+
+
 ## License
 
 MIT
